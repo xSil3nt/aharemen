@@ -127,14 +127,38 @@ public class MainActivity extends Activity {
     void quickAction(LinearLayout row,String icon,String name,Runnable action){LinearLayout item=ui.col();item.setGravity(Gravity.CENTER);ui.pad(item,4,12);item.addView(ui.icon(icon,ui.ink),ui.lp(22,22));ui.space(item,9);TextView caption=ui.medium(name,12,ui.ink);caption.setGravity(Gravity.CENTER);item.addView(caption);item.setMinimumHeight(ui.d(72));item.setBackground(ui.shape(ui.panel,16));item.setFocusable(true);item.setOnClickListener(v->{if(!busy)action.run();});LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);p.setMargins(ui.d(3),0,ui.d(3),0);row.addView(item,p);}
 
     void openWallet(boolean reverse){take=reverse;Arrays.fill(chosen,0);screen="Build";hideKeyboard();render();}
-
-    void walletScreen(){title("Build","");body.addView(ui.text("Allowance builds are coming soon.",14,ui.muted));}
-
-
-
-
-
-
+    double[] prices(){return new double[]{rates.optDouble("mb",0),rates.optDouble("min",0),rates.optDouble("sms",0)};}
+    void walletScreen(){
+        ui.space(body,8);
+        LinearLayout modes=ui.row();ui.pad(modes,4,4);modes.setBackground(ui.shape(ui.panel,15));
+        for(boolean reverse:new boolean[]{false,true}){TextView m=ui.button(reverse?"Take back":"Build",false,()->{if(busy)return;take=reverse;Arrays.fill(chosen,0);render();});m.setTextColor(take==reverse?ui.ink:ui.muted);m.setBackground(ui.shape(take==reverse?ui.raised:ui.panel,12));modes.addView(m,new LinearLayout.LayoutParams(0,ui.d(42),1));}body.addView(modes);ui.space(body,18);
+        Arrays.fill(sliders,null);Arrays.fill(fields,null);quote=null;after=null;review=null;
+        for(int i=0;i<3;i++)sliderCard(i);
+        LinearLayout dock=ui.col();ui.pad(dock,22,12);dock.setBackgroundColor(ui.bg);LinearLayout summary=ui.row();summary.addView(new Space(this),new LinearLayout.LayoutParams(0,1,1));quote=ui.medium("0 RB",25,ui.mint);summary.addView(quote);dock.addView(summary);after=ui.text("",12,ui.muted);dock.addView(after);ui.space(dock,12);
+        review=ui.button(take?"Review take-back":"Review build",true,()->{if(!busy)reviewWallet();});dock.addView(review,ui.lp(-1,-2));root.addView(dock);updateQuote();
+    }
+    int maximum(int index){double[] p=prices();if(take){JSONObject plan=usagePlan(KEYS[index],true);double raw=plan==null?0:plan.optDouble("available",0);return (int)Math.min(1000000,Math.max(0,Math.floor(raw/(index==0?1024:index==1?60:1))));}double remaining=user.optDouble("rb_balance",0);for(int i=0;i<3;i++)if(i!=index)remaining-=chosen[i]*p[i];return WalletMath.maxUnits(Math.max(0,remaining),p[index]);}
+    void sliderCard(int index){
+        LinearLayout card=ui.col();ui.pad(card,16,14);card.setBackground(ui.shape(ui.panel,18));LinearLayout line=ui.row();int color=index==0?ui.blue:index==1?ui.peach:ui.mint;
+        line.addView(ui.icon(KEYS[index],color),ui.lp(21,21));TextView name=ui.medium(NAMES[index],14,ui.ink);name.setPadding(ui.d(9),0,0,0);line.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+        EditText amount=new EditText(this);amount.setInputType(InputType.TYPE_CLASS_NUMBER);amount.setSingleLine(true);amount.setTextColor(ui.ink);amount.setTextSize(23);amount.setGravity(Gravity.END);amount.setPadding(0,ui.d(3),ui.d(5),ui.d(3));amount.setBackgroundColor(Color.TRANSPARENT);amount.setSelectAllOnFocus(true);amount.setText(String.valueOf(chosen[index]));amount.setContentDescription(NAMES[index]+" amount");line.addView(amount,ui.lp(80,44));line.addView(ui.text(UNITS[index],12,ui.muted));card.addView(line);
+        SeekBar slider=new SeekBar(this);sliderLimits[index]=maximum(index);slider.setMax(sliderLimits[index]);slider.setProgress(chosen[index]);slider.setProgressTintList(ColorStateList.valueOf(color));slider.setThumbTintList(ColorStateList.valueOf(color));slider.setProgressBackgroundTintList(ColorStateList.valueOf(ui.raised));slider.setPadding(ui.d(14),0,ui.d(14),0);slider.setThumbOffset(ui.d(10));slider.setSplitTrack(false);slider.setContentDescription(NAMES[index]+" slider");card.addView(slider,ui.lp(-1,44));
+        double rate=prices()[index];card.addView(ui.text(rate>0?"1 "+UNITS[index]+" = "+number(rate)+" RB":"Refresh to load rates",11,ui.muted));sliders[index]=slider;fields[index]=amount;
+        slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){
+            public void onStartTrackingTouch(SeekBar s){draggingSlider=index;hideKeyboard();}
+            public void onStopTrackingTouch(SeekBar s){int n=s.getProgress();draggingSlider=-1;setAllowance(index,n);}
+            public void onProgressChanged(SeekBar s,int n,boolean fromUser){if(!fromUser||busy)return;int anchor=index==1?10:100;int value=n;if(value==anchor&&chosen[index]!=anchor)s.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);chosen[index]=value;sliderUpdate=true;amount.setText(String.valueOf(value));sliderUpdate=false;updateQuote();}
+        });
+        amount.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){if(sliderUpdate||busy)return;try{chosen[index]=s.length()==0?0:Integer.parseInt(s.toString());}catch(Exception e){chosen[index]=Integer.MAX_VALUE;}sliderUpdate=true;slider.setProgress(chosen[index]);sliderUpdate=false;updateQuote();}public void afterTextChanged(Editable e){}});
+        LinearLayout.LayoutParams params=ui.lp(-1,-2);params.setMargins(0,0,0,ui.d(12));body.addView(card,params);
+    }
+    void setAllowance(int index,int value){chosen[index]=value;sliderUpdate=true;fields[index].setText(String.valueOf(value));sliderUpdate=false;updateQuote();}
+    void updateQuote(){if(quote==null||after==null)return;try{BigDecimal cost=WalletMath.cost(chosen,prices());quote.setText(decimal(cost)+" RB");double balance=user.optDouble("rb_balance",0);boolean hasSelection=chosen[0]>0||chosen[1]>0||chosen[2]>0;after.setVisibility(hasSelection?View.VISIBLE:View.GONE);if(hasSelection)after.setText(number(balance)+" → "+number(balance+(take?1:-1)*cost.doubleValue())+" RB");boolean valid=cost.signum()>0&&(take||cost.compareTo(BigDecimal.valueOf(balance))<=0)&&loaded;for(int i=0;i<3;i++){if(chosen[i]>maximum(i))valid=false;if(sliders[i]!=null){sliderUpdate=true;if(draggingSlider!=i){sliderLimits[i]=maximum(i);sliders[i].setMax(sliderLimits[i]);sliders[i].setProgress(chosen[i]);}sliders[i].setEnabled(sliderLimits[i]>0);sliderUpdate=false;}}if(review!=null)review.setAlpha(valid?1:.45f);}catch(Exception e){quote.setText("— RB");after.setVisibility(View.VISIBLE);after.setText("Refresh to load your conversion rates.");}}
+    void reviewWallet(){try{if(!loaded)throw new Exception("Wait for your balances to load.");int[] selected=chosen.clone();boolean reverse=take;BigDecimal cost=WalletMath.cost(selected,prices());if(cost.signum()<=0)throw new Exception("Choose an allowance amount first.");if(!reverse&&cost.compareTo(BigDecimal.valueOf(user.optDouble("rb_balance",0)))>0)throw new Exception("You don’t have enough RB for this build.");for(int i=0;i<3;i++)if(selected[i]>maximum(i))throw new Exception("That amount exceeds your available balance.");
+        LinearLayout c=sheet(reverse?"Take back allowances":"Build","",reverse?"wallet":"plus");for(int i=0;i<3;i++)if(selected[i]>0)pair(c,NAMES[i],number(selected[i])+" "+UNITS[i]);ui.space(c,10);ui.divider(c);pair(c,reverse?"RB returned":"RB spent",decimal(cost)+" RB");pair(c,"Balance after",number(user.optDouble("rb_balance",0)+(reverse?1:-1)*cost.doubleValue())+" RB");
+        showSheet(c,reverse?"Confirm take-back":"Confirm build",()->{if(demo){simulateWallet(selected,reverse,cost);return;}request(reverse?"wallet/take":"wallet/build","POST",json("data",selected[0],"voice",selected[1],"sms",selected[2]).toString(),false,j->{Arrays.fill(chosen,0);refresh(()->success(reverse?"RB returned":"Allowance built",decimal(cost)+" RB "+(reverse?"returned to":"used from")+" your balance."));});});
+    }catch(Exception e){notice(e.getMessage());}}
+    void simulateWallet(int[] selected,boolean reverse,BigDecimal cost){try{double sign=reverse?-1:1;JSONObject plans=usage.getJSONObject("data");for(int i=0;i<3;i++){JSONObject p=plans.getJSONObject(KEYS[i]);p.put("available",p.optDouble("available",0)+sign*selected[i]*(i==0?1024:i==1?60:1));}user.put("rb_balance",user.optDouble("rb_balance",0)+(reverse?1:-1)*cost.doubleValue());Arrays.fill(chosen,0);render();success("Demo complete","Sample balances updated. Your real account was not changed.");}catch(Exception e){notice(e.getMessage());}}
 
     void openTransfer(String mode){transferMode=mode;recipientDraft="";rbDraft="10";contactSearch="";screen="Transfer";render();}
     void transfer(){screen="Home";render();}
