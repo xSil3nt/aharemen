@@ -1,0 +1,16 @@
+# Local tools, credentials, signing material and generated artifacts
+/tools/
+/artifacts/
+/build/
+/dist/
+/analysis/
+*.apk
+*.xapk
+*.idsig
+*.keystore
+*.jks
+*.pem
+.env
+.env.*
+local.properties
+/app/src/main/java/app/shazin/aharemen/ClientConfig.java

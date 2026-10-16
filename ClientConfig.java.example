@@ -1,0 +1,9 @@
+package app.shazin.aharemen;
+
+// Copy to app/src/main/java/app/shazin/aharemen/ClientConfig.java locally.
+// Supply authorized API client configuration. Never commit credentials.
+final class ClientConfig {
+    static final String ID="";
+    static final String SECRET="";
+    static final String PAYMENT_CHECKSUM_SUFFIX="";
+}
