@@ -160,19 +160,59 @@ public class MainActivity extends Activity {
     }catch(Exception e){notice(e.getMessage());}}
     void simulateWallet(int[] selected,boolean reverse,BigDecimal cost){try{double sign=reverse?-1:1;JSONObject plans=usage.getJSONObject("data");for(int i=0;i<3;i++){JSONObject p=plans.getJSONObject(KEYS[i]);p.put("available",p.optDouble("available",0)+sign*selected[i]*(i==0?1024:i==1?60:1));}user.put("rb_balance",user.optDouble("rb_balance",0)+(reverse?1:-1)*cost.doubleValue());Arrays.fill(chosen,0);render();success("Demo complete","Sample balances updated. Your real account was not changed.");}catch(Exception e){notice(e.getMessage());}}
 
-    void openTransfer(String mode){transferMode=mode;recipientDraft="";rbDraft="10";contactSearch="";screen="Transfer";render();}
+    void openTransfer(String mode){transferMode=mode;recipientDraft="";rbDraft="10";contactSearch="";screen="Transfer";render();if(!contactsLoaded&&!contactsLoading)enableContacts();}
     void transfer(){
         title(transferMode.equals("send")?"Send RB":"Request RB","");
-        recipient=input(body,"Mobile number",InputType.TYPE_CLASS_PHONE,recipientDraft);
+        recipient=input(body,"Search contacts or enter a number",InputType.TYPE_CLASS_TEXT,recipientDraft);
         recipient.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_NEXT);
+        ui.space(body,10);contactScroll=new ScrollView(this);contactScroll.setNestedScrollingEnabled(true);contactScroll.setScrollbarFadingEnabled(false);contactResults=ui.col();contactScroll.addView(contactResults);body.addView(contactScroll,ui.lp(-1,0));drawContacts();
+        recipient.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void afterTextChanged(Editable e){}public void onTextChanged(CharSequence s,int start,int before,int count){recipientDraft=s.toString();contactSearch=recipientDraft;drawContacts();}});
         ui.space(body,18);label("Amount in RB");transferAmount=input(body,"10",InputType.TYPE_CLASS_NUMBER,rbDraft);transferAmount.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_DONE);transferAmount.setOnEditorActionListener((v,a,event)->{if(a==android.view.inputmethod.EditorInfo.IME_ACTION_DONE){hideKeyboard();return true;}return false;});
         transferAmount.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int c,int f){}public void afterTextChanged(Editable e){}public void onTextChanged(CharSequence s,int a,int b,int c){rbDraft=s.toString();}});
         ui.space(body,10);body.addView(ui.text("Amounts in steps of 10 RB"+(transferMode.equals("request")?", up to 200 RB.":". Available: "+number(user.optDouble("rb_balance",0))+" RB."),12,ui.muted));ui.space(body,22);button("Review "+(transferMode.equals("send")?"transfer":"request"),true,()->reviewTransfer());
     }
-
-
-
-
+    void enableContacts(){if(demo)return;if(checkSelfPermission(android.Manifest.permission.READ_CONTACTS)==android.content.pm.PackageManager.PERMISSION_GRANTED){scanContacts();return;}requestPermissions(new String[]{android.Manifest.permission.READ_CONTACTS},43);}
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results){super.onRequestPermissionsResult(requestCode,permissions,results);if(requestCode!=43)return;if(results.length>0&&results[0]==android.content.pm.PackageManager.PERMISSION_GRANTED)scanContacts();else if(screen.equals("Transfer")){render();notice("Contacts access was not granted. You can still enter a number.");}}
+    void scanContacts(){
+        if(contactsLoading||demo||busy)return;
+        if(checkSelfPermission(android.Manifest.permission.READ_CONTACTS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){enableContacts();return;}
+        contactsLoading=true;contactsError="";if(screen.equals("Transfer"))drawContacts();String session=token;int ownId=user.optInt("id",-1);String ownPhone=mobile;
+        worker.execute(()->{try{
+            LinkedHashMap<String,String> names=ContactBook.read(this);ArrayList<String> numbers=new ArrayList<>(names.keySet());numbers.remove(ownPhone);
+            ArrayList<JSONObject> found=new ArrayList<>();HashSet<Integer> seen=new HashSet<>();
+            for(int start=0;start<numbers.size();start+=100){if(Thread.currentThread().isInterrupted())return;JSONArray batch=new JSONArray();for(int i=start;i<Math.min(start+100,numbers.size());i++)batch.put(numbers.get(i));
+                JSONObject response=ApiClient.call(session,"friends","POST",json("numbers",batch).toString(),false);JSONArray matches=response.optJSONArray("data");if(matches==null)throw new Exception("The server could not check your contacts. Try again.");
+                for(int i=0;i<matches.length();i++){JSONObject account=matches.optJSONObject(i);if(account==null)continue;String phone=account.optString("mobile","");int id=account.optInt("id",0);if(!ContactMatch.eligible(names,phone,id,ownId,ownPhone)||!seen.add(id))continue;String normalized=WalletMath.mobile(phone);found.add(json("id",id,"mobile",normalized,"name",account.optString("name",""),"contact_name",names.get(normalized)));}
+            }
+            java.text.Collator sort=java.text.Collator.getInstance();found.sort((a,b)->sort.compare(a.optString("contact_name"),b.optString("contact_name")));
+            handler.post(()->{if(isDestroyed()||!session.equals(token))return;contactsLoading=false;contactsLoaded=true;compatibleContacts.clear();compatibleContacts.addAll(found);if(screen.equals("Transfer"))drawContacts();});
+        }catch(Exception e){handler.post(()->{if(isDestroyed()||!session.equals(token))return;contactsLoading=false;contactsError="Could not finish checking contacts. "+(e.getMessage()==null?"Try again.":e.getMessage());if(screen.equals("Transfer"))drawContacts();});}});
+    }
+    void drawContacts(){
+        if(contactResults==null||contactScroll==null)return;
+        contactResults.removeAllViews();String query=recipientDraft.trim().toLowerCase(Locale.getDefault());
+        String phoneQuery="";try{phoneQuery=WalletMath.mobile(query);}catch(Exception ignored){}
+        int rows=0;
+        if(!phoneQuery.isEmpty()){
+            for(JSONObject account:compatibleContacts)if(phoneQuery.equals(account.optString("mobile"))){
+                LinearLayout selected=ui.row();ui.pad(selected,0,12);selected.addView(ui.icon("check",ui.mint),ui.lp(18,18));TextView name=ui.medium(account.optString("contact_name"),13,ui.muted);name.setPadding(ui.d(10),0,0,0);selected.addView(name);contactResults.addView(selected);rows=1;break;
+            }
+            contactScroll.setLayoutParams(ui.lp(-1,rows==0?0:44));return;
+        }
+        if(demo){contactScroll.setLayoutParams(ui.lp(-1,0));return;}
+        if(checkSelfPermission(android.Manifest.permission.READ_CONTACTS)!=android.content.pm.PackageManager.PERMISSION_GRANTED){
+            contactResults.addView(ui.button("Find people in contacts",false,()->enableContacts()),ui.lp(-1,-2));contactScroll.setLayoutParams(ui.lp(-1,54));return;
+        }
+        if(contactsLoading){contactResults.addView(ui.text("Checking contacts…",13,ui.muted));contactScroll.setLayoutParams(ui.lp(-1,32));return;}
+        if(!contactsLoaded){contactResults.addView(ui.button(contactsError.isEmpty()?"Find people in contacts":"Retry contact lookup",false,()->scanContacts()),ui.lp(-1,-2));contactScroll.setLayoutParams(ui.lp(-1,54));return;}
+        for(JSONObject account:compatibleContacts){
+            String name=account.optString("contact_name"),phone=account.optString("mobile");
+            boolean nameMatch=name.toLowerCase(Locale.getDefault()).contains(query);boolean numberMatch=query.matches("[+0-9()\\s-]+")&&phone.contains(query.replaceAll("[^0-9]",""));if(!query.isEmpty()&&!nameMatch&&!numberMatch)continue;
+            rows++;LinearLayout row=ui.row();ui.pad(row,0,13);row.addView(ui.icon("account",ui.mint),ui.lp(22,22));LinearLayout detail=ui.col();detail.setPadding(ui.d(14),0,0,0);detail.addView(ui.medium(name,15,ui.ink));ui.space(detail,5);detail.addView(ui.text(phone,12,ui.muted));row.addView(detail,new LinearLayout.LayoutParams(0,-2,1));row.setContentDescription("Choose "+name);row.setOnClickListener(v->{if(busy)return;recipient.setText(phone);recipient.setSelection(recipient.length());hideKeyboard();});contactResults.addView(row,ui.lp(-1,72));ui.divider(contactResults);
+        }
+        if(rows==0){contactResults.addView(ui.text(query.isEmpty()?"No contacts to show.":"No matching contacts. You can enter a phone number.",13,ui.muted));contactScroll.setLayoutParams(ui.lp(-1,48));}
+        else contactScroll.setLayoutParams(ui.lp(-1,Math.min(219,rows*73)));
+    }
     void reviewTransfer(){try{String phone;try{phone=WalletMath.mobile(recipient.getText().toString());}catch(Exception e){recipient.setError("Choose a contact or enter a seven-digit number.");recipient.requestFocus();return;}if(phone.equals(mobile))throw new Exception("Choose another person’s number.");int rb=Integer.parseInt(transferAmount.getText().toString());if(rb<10||rb%10!=0||transferMode.equals("request")&&rb>200)throw new Exception("Choose a multiple of 10 RB"+(transferMode.equals("request")?", from 10 to 200.":"."));if(transferMode.equals("send")&&rb>user.optDouble("rb_balance",0))throw new Exception("You don’t have enough RB.");String mode=transferMode;hideKeyboard();if(demo){transferReview(mode,phone,rb,json("id",123,"name","Demo recipient"));return;}request("friends","POST",json("numbers",new JSONArray().put(phone)).toString(),false,j->{JSONArray matches=j.optJSONArray("data");JSONObject match=null;if(matches!=null)for(int i=0;i<matches.length();i++){JSONObject candidate=matches.optJSONObject(i);if(candidate==null)continue;try{if(WalletMath.mobile(candidate.optString("mobile","")).equals(phone)){match=candidate;break;}}catch(Exception ignored){}}if(match==null||match.optInt("id",0)<=0)throw new Exception("That number was not found as a registered user.");if(match.optInt("id")==user.optInt("id"))throw new Exception("Choose another person’s account.");transferReview(mode,phone,rb,match);});}catch(NumberFormatException e){transferAmount.setError("Enter a valid RB amount.");}catch(Exception e){notice(e.getMessage());}}
     void transferReview(String mode,String phone,int rb,JSONObject person){LinearLayout c=sheet(mode.equals("send")?"Send RB":"Request RB",mode.equals("send")?"":"",mode.equals("send")?"send":"request");pair(c,"Name",person.optString("name","—"));pair(c,mode.equals("send")?"Recipient":"Request from",phone);pair(c,"Amount",rb+" RB");int id=person.optInt("id");showSheet(c,mode.equals("send")?"Send "+rb+" RB":"Send request",()->{if(demo){success("Demo only","No transfer or request was sent.");return;}request("transfer/"+mode,"POST",json("rb",rb,mode.equals("send")?"receiver":"from",id).toString(),false,j->{screen="Activity";historyLoaded=false;refresh(()->{loadHistory(false);success(mode.equals("send")?"RB sent":"Request sent",rb+" RB · "+phone);});});});}
 
