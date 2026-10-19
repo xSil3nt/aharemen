@@ -35,7 +35,7 @@ public class MainActivity extends Activity {
     String contactsError="",contactSearch="";
     final ArrayList<JSONObject> compatibleContacts=new ArrayList<>();
     LinearLayout contactResults;
-    ScrollView contactScroll;  String startupFailure="";
+    ScrollView contactScroll; RefreshLayout pullRefresh; String startupFailure="";
     interface Result {void done(JSONObject result) throws Exception;}
 
     @Override public void onCreate(Bundle state) {
@@ -55,10 +55,11 @@ public class MainActivity extends Activity {
         setContentView(root);root.requestApplyInsets();
         LinearLayout bar=ui.row();ui.pad(bar,22,10);
         TextView brand=ui.medium("aharemen",24,ui.ink);brand.setLetterSpacing(-.04f);bar.addView(brand,new LinearLayout.LayoutParams(0,-2,1));
-        if(demo)bar.addView(ui.text("DEMO",11,ui.mint));else if(loaded)bar.addView(ui.button("Refresh",false,()->refresh(null)));
+        if(demo)bar.addView(ui.text("DEMO",11,ui.mint));
         root.addView(bar);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
-        root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        pullRefresh=new RefreshLayout(this,scroll,ui,new RefreshLayout.Action(){public boolean allowed(){return loaded&&!busy&&!contactsLoading&&(!token.isEmpty()||demo);}public void refresh(){if(demo)MainActivity.this.refresh(null);else if(screen.equals("Transfer"))scanContacts();else MainActivity.this.refresh(null);}});
+        root.addView(pullRefresh,new LinearLayout.LayoutParams(-1,0,1));
         body=ui.col();body.setPadding(ui.d(22),ui.d(8),ui.d(22),ui.d(24));scroll.addView(body);
         status=ui.text(busy?"Updating balances…":"",13,ui.peach);status.setVisibility(busy?View.VISIBLE:View.GONE);body.addView(status);
         if(token.isEmpty()&&!demo){login();return;}
@@ -69,7 +70,7 @@ public class MainActivity extends Activity {
     void startupLoading(){
         body.removeAllViews();body.setGravity(Gravity.CENTER);
         if(startupFailure.isEmpty()){
-            ProgressBar loader=new ProgressBar(this);LinearLayout.LayoutParams p=ui.lp(48,48);p.gravity=Gravity.CENTER_HORIZONTAL;body.addView(loader,p);
+            OrbitLoader loader=new OrbitLoader(this,ui);loader.running(true);LinearLayout.LayoutParams p=ui.lp(86,86);p.gravity=Gravity.CENTER_HORIZONTAL;body.addView(loader,p);
         }else{
             TextView title=ui.medium("Couldn’t load your account",20,ui.ink);title.setGravity(Gravity.CENTER);body.addView(title);ui.space(body,12);TextView detail=ui.text(startupFailure,13,ui.muted);detail.setGravity(Gravity.CENTER);body.addView(detail);ui.space(body,24);button("Try again",true,()->{startupFailure="";render();refresh(null);});
         }
@@ -185,8 +186,8 @@ public class MainActivity extends Activity {
                 for(int i=0;i<matches.length();i++){JSONObject account=matches.optJSONObject(i);if(account==null)continue;String phone=account.optString("mobile","");int id=account.optInt("id",0);if(!ContactMatch.eligible(names,phone,id,ownId,ownPhone)||!seen.add(id))continue;String normalized=WalletMath.mobile(phone);found.add(json("id",id,"mobile",normalized,"name",account.optString("name",""),"contact_name",names.get(normalized)));}
             }
             java.text.Collator sort=java.text.Collator.getInstance();found.sort((a,b)->sort.compare(a.optString("contact_name"),b.optString("contact_name")));
-            handler.post(()->{if(isDestroyed()||!session.equals(token))return;contactsLoading=false;contactsLoaded=true;compatibleContacts.clear();compatibleContacts.addAll(found);if(screen.equals("Transfer"))drawContacts();});
-        }catch(Exception e){handler.post(()->{if(isDestroyed()||!session.equals(token))return;contactsLoading=false;contactsError="Could not finish checking contacts. "+(e.getMessage()==null?"Try again.":e.getMessage());if(screen.equals("Transfer"))drawContacts();});}});
+            handler.post(()->{if(isDestroyed()||!session.equals(token))return;contactsLoading=false;if(pullRefresh!=null)pullRefresh.refreshing(false);contactsLoaded=true;compatibleContacts.clear();compatibleContacts.addAll(found);if(screen.equals("Transfer"))drawContacts();});
+        }catch(Exception e){handler.post(()->{if(isDestroyed()||!session.equals(token))return;contactsLoading=false;if(pullRefresh!=null)pullRefresh.refreshing(false);contactsError="Could not finish checking contacts. "+(e.getMessage()==null?"Try again.":e.getMessage());if(screen.equals("Transfer"))drawContacts();});}});
     }
     void drawContacts(){
         if(contactResults==null||contactScroll==null)return;
@@ -240,7 +241,7 @@ public class MainActivity extends Activity {
 
     void request(String path,String method,String data,boolean form,Result done){if(busy)return;busy=true;notice("Please wait…");String session=token;worker.execute(()->{try{JSONObject result=ApiClient.call(session,path,method,data,form);if(method.equals("POST")&&!path.equals("user/verify")&&!path.equals("friends")&&!result.optBoolean("success",false))throw new Exception(result.optString("error","The request was not confirmed by the server."));handler.post(()->{if(isDestroyed())return;busy=false;status.setVisibility(View.GONE);try{done.done(result);}catch(Exception e){notice(e.getMessage());}});}catch(Exception e){handler.post(()->{if(isDestroyed())return;busy=false;notice(e.getMessage());});}});}
 
-    void refresh(Runnable afterRefresh){if(busy)return;if(demo){render();if(afterRefresh!=null)afterRefresh.run();return;}busy=true;startupFailure="";status.setVisibility(View.GONE);String session=token;worker.execute(()->{try{JSONObject u=ApiClient.call(session,"user","GET",null,false),us=ApiClient.call(session,"usages","GET",null,false),r=ApiClient.call(session,"rates","GET",null,false),w=ApiClient.call(session,"wallet","GET",null,false);handler.post(()->{if(isDestroyed())return;busy=false;user=w.optJSONObject("user")==null?u:w.optJSONObject("user");JSONObject newest=w.optJSONObject("usage"),all=us.optJSONObject("data");if(newest!=null&&all!=null){for(String k:KEYS){JSONObject plan=newest.optJSONObject(k);if(plan!=null)try{all.put(k,plan);}catch(JSONException ignored){}}}usage=us;rates=r;wallet=w;loaded=true;render();if(afterRefresh!=null)afterRefresh.run();else if(screen.equals("Activity"))loadHistory(false);});}catch(Exception e){handler.post(()->{if(isDestroyed())return;busy=false;if(!loaded){startupFailure=e.getMessage()==null?"Could not load your account.":e.getMessage();render();}else notice(e.getMessage());});}});}
+    void refresh(Runnable afterRefresh){if(busy)return;if(demo){render();if(afterRefresh!=null)afterRefresh.run();return;}busy=true;startupFailure="";status.setVisibility(View.GONE);if(loaded&&pullRefresh!=null)pullRefresh.refreshing(true);String session=token;worker.execute(()->{try{JSONObject u=ApiClient.call(session,"user","GET",null,false),us=ApiClient.call(session,"usages","GET",null,false),r=ApiClient.call(session,"rates","GET",null,false),w=ApiClient.call(session,"wallet","GET",null,false);handler.post(()->{if(isDestroyed())return;busy=false;user=w.optJSONObject("user")==null?u:w.optJSONObject("user");JSONObject newest=w.optJSONObject("usage"),all=us.optJSONObject("data");if(newest!=null&&all!=null){for(String k:KEYS){JSONObject plan=newest.optJSONObject(k);if(plan!=null)try{all.put(k,plan);}catch(JSONException ignored){}}}usage=us;rates=r;wallet=w;loaded=true;render();if(afterRefresh!=null)afterRefresh.run();else if(screen.equals("Activity"))loadHistory(false);});}catch(Exception e){handler.post(()->{if(isDestroyed())return;busy=false;if(pullRefresh!=null)pullRefresh.refreshing(false);if(!loaded){startupFailure=e.getMessage()==null?"Could not load your account.":e.getMessage();render();}else notice(e.getMessage());});}});}
     void seed(){mobile="7•• ••••";user=json("id",1,"name","Your account","rb_balance",24.5,"email","you@example.com");JSONObject data=json("data",json("available",75027,"total",106496),"voice",json("available",520,"total",1200),"sms",json("available",67,"total",100));usage=json("data",data);wallet=json("usage",data,"user",user);rates=json("mb",.01,"min",.1,"sms",.01);history=new JSONArray();historyLoaded=true;loaded=true;}
     @Override public void onBackPressed(){if(busy)return;if(screen.equals("Home")||token.isEmpty()&&!demo){super.onBackPressed();return;}screen=screen.equals("Transfer")?"Activity":"Home";hideKeyboard();render();}
     @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);state.putString("screen",screen);state.putString("transferMode",transferMode);state.putString("contactSearch",contactSearch);state.putBoolean("take",take);state.putIntArray("chosen",chosen);state.putBoolean("demo",demo);state.putString("recipientDraft",screen.equals("Transfer")&&recipient!=null?recipient.getText().toString():recipientDraft);state.putString("rbDraft",screen.equals("Transfer")&&transferAmount!=null?transferAmount.getText().toString():rbDraft);state.putString("bmlAmountDraft",screen.equals("Top up")&&bmlAmount!=null?bmlAmount.getText().toString():bmlAmountDraft);}
