@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
     void allowanceRow(String key,String name,int color){
         JSONObject plan=usagePlan(key,false);double raw=plan==null?0:plan.optDouble("available",0),total=plan==null?0:plan.optDouble("total",0);
         if(key.equals("data")){raw=rawData(usage.optJSONObject("data"),"available");total=rawData(usage.optJSONObject("data"),"total");}
-        double value=key.equals("data")?Allowance.data((long)raw):key.equals("voice")?Allowance.voice((long)raw):raw;
+        double value=key.equals("data")?Allowance.preciseData(raw):key.equals("voice")?Allowance.preciseVoice(raw):raw;
         String unit=key.equals("data")?(value>=1024?"GB":"MB"):key.equals("voice")?"min":"SMS";if(key.equals("data")&&value>=1024)value/=1024;
         LinearLayout row=ui.row();row.setPadding(0,ui.d(14),0,ui.d(14));LinearLayout badge=ui.col();badge.setGravity(Gravity.CENTER);badge.setBackground(ui.shape(ui.panel,13));badge.addView(ui.icon(key,color),ui.lp(21,21));row.addView(badge,ui.lp(42,42));
         LinearLayout center=ui.col();center.setPadding(ui.d(12),0,ui.d(8),0);center.addView(ui.medium(name,14,ui.ink));ui.space(center,6);
