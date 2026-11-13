@@ -10,6 +10,8 @@ import android.widget.*;
 /** Small native component set, shared by screens and transaction sheets. */
 final class Ui {
     final Context context;
+    final java.util.ArrayList<ActionButton> buttons=new java.util.ArrayList<>();
+    ActionButton lastAction;
     final int bg, panel, raised, line, ink, muted, mint, blue, peach;
     Ui(Context c) {
         context=c;
@@ -35,15 +37,27 @@ final class Ui {
     TextView medium(String s,int size,int color) {TextView t=text(s,size,color);t.setTypeface(Typeface.create("sans-serif-medium",0));return t;}
     GradientDrawable shape(int color,int radius) {GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(d(radius));return g;}
     GradientDrawable outline(int color,int radius) {GradientDrawable g=shape(color,radius);g.setStroke(d(1),line);return g;}
-
+    RippleDrawable touchSurface(int color,int radius){return new RippleDrawable(ColorStateList.valueOf(0x25ffffff),shape(color,radius),null);}
     void space(LinearLayout parent,int h) {parent.addView(new Space(context),lp(1,h));}
     void divider(LinearLayout parent) {View v=new View(context);v.setBackgroundColor(line);parent.addView(v,lp(-1,1));}
     void pad(View v,int h,int vertical) {v.setPadding(d(h),d(vertical),d(h),d(vertical));}
     TextView button(String title,boolean primary,Runnable action) {
-        TextView b=medium(title,15,primary?bg:ink);b.setGravity(Gravity.CENTER);b.setMinHeight(d(50));pad(b,16,12);
+        ActionButton b=new ActionButton(title,primary);buttons.add(b);b.setGravity(Gravity.CENTER);b.setMinHeight(d(50));pad(b,16,12);
         b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x25ffffff),shape(primary?mint:raised,16),null));
-        b.setFocusable(true);b.setOnClickListener(v->action.run());return b;
+        b.setFocusable(true);b.setOnClickListener(v->{lastAction=b;action.run();});return b;
     }
+    void working(boolean value,String label,TextView fallback){
+        ActionButton active=lastAction!=null&&lastAction.isAttachedToWindow()?lastAction:fallback instanceof ActionButton?(ActionButton)fallback:null;
+        for(ActionButton b:buttons){b.loading=value&&b==active;b.setEnabled(!value);b.setText(b.loading?label:b.title);b.setAlpha(value&&!b.loading?.5f:1);b.setPadding(d(b.loading?44:16),d(12),d(16),d(12));b.invalidate();}
+    }
+    final class ActionButton extends TextView {
+        final String title;final boolean primary;boolean loading;final Paint spinner=new Paint(3);
+        ActionButton(String text,boolean filled){super(context);title=text;primary=filled;setText(text);setTextSize(15);setTextColor(filled?bg:ink);setTypeface(Typeface.create("sans-serif-medium",0));setIncludeFontPadding(false);setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);}
+        @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);if(!loading)return;spinner.setColor(primary?bg:mint);spinner.setStyle(Paint.Style.STROKE);spinner.setStrokeWidth(d(2));spinner.setStrokeCap(Paint.Cap.ROUND);float x=d(25),y=getHeight()/2f,r=d(8);float angle=android.animation.ValueAnimator.areAnimatorsEnabled()?(android.os.SystemClock.uptimeMillis()%1000)*.36f:-90;canvas.drawArc(x-r,y-r,x+r,y+r,angle,250,false,spinner);if(android.animation.ValueAnimator.areAnimatorsEnabled())postInvalidateDelayed(16);}
+    }
+    LinearLayout loadingRow(String label){LinearLayout row=row();pad(row,0,10);OrbitLoader loader=new OrbitLoader(context,this);loader.running(true);loader.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);row.addView(loader,lp(28,28));TextView text=text(label,13,muted);text.setPadding(d(10),0,0,0);row.addView(text,new LinearLayout.LayoutParams(0,-2,1));return row;}
+    void placeholder(LinearLayout parent,int width,int height){View block=new View(context);block.setBackground(shape(raised,6));block.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);parent.addView(block,lp(width,height));}
+    void skeletonRows(LinearLayout parent,int count){for(int i=0;i<count;i++){LinearLayout row=row();pad(row,0,18);View icon=new View(context);icon.setBackground(shape(raised,14));row.addView(icon,lp(40,40));LinearLayout lines=col();lines.setPadding(d(14),0,0,0);placeholder(lines,120,12);space(lines,10);placeholder(lines,80,9);row.addView(lines,new LinearLayout.LayoutParams(0,-2,1));placeholder(row,54,16);parent.addView(row);divider(parent);}}
     Icon icon(String name,int color) {return new Icon(context,name,color);}
     final class Icon extends View {
         final String name; final Paint p=new Paint(3); final int color;
