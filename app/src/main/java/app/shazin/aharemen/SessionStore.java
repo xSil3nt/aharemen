@@ -33,8 +33,16 @@ final class SessionStore {
         c.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, Base64.decode(prefs.getString("iv", ""), Base64.NO_WRAP)));
         return new String(c.doFinal(Base64.decode(value, Base64.NO_WRAP)), StandardCharsets.UTF_8);
     }
-
-
-
+    synchronized void saveSnapshot(String value) throws Exception {
+        Cipher c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.ENCRYPT_MODE,key());
+        prefs.edit().putString("account_cache",Base64.encodeToString(c.doFinal(value.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP))
+            .putString("account_cache_iv",Base64.encodeToString(c.getIV(),Base64.NO_WRAP)).apply();
+    }
+    synchronized String loadSnapshot() throws Exception {
+        String value=prefs.getString("account_cache","");if(value.isEmpty())return "";
+        Cipher c=Cipher.getInstance("AES/GCM/NoPadding");c.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Base64.decode(prefs.getString("account_cache_iv",""),Base64.NO_WRAP)));
+        return new String(c.doFinal(Base64.decode(value,Base64.NO_WRAP)),StandardCharsets.UTF_8);
+    }
+    synchronized void clearSnapshot(){prefs.edit().remove("account_cache").remove("account_cache_iv").apply();}
     void clear() { prefs.edit().remove("session").remove("iv").apply(); }
 }

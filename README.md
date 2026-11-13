@@ -2,6 +2,17 @@
 
 An unofficial Dhiraagu client for Android 8+.
 
-Supports SMS login and account balances, allowance builds and take-back, RB transfers, requests and history, contact lookup, BML and voucher top-up.
+Check balances, build or take back allowances, send and request RB, view activity, and top up.
 
-Copy `ClientConfig.java.example` to `app/src/main/java/app/shazin/aharemen/ClientConfig.java` and configure it locally. Build with `.\build.ps1` using JDK 17+ and Android SDK 36.
+## Build
+
+Requires JDK 17+ (`JAVA_HOME`) and Android SDK platform/build tools 36 under `tools/sdk-platform/` and `tools/sdk-build-tools/`.
+
+Copy `ClientConfig.java.example` to `app/src/main/java/app/shazin/aharemen/ClientConfig.java` and fill in your API configuration.
+
+```powershell
+.\test.ps1
+.\build.ps1
+```
+
+Output: `dist/aharemen.apk`. Keep `tools/development.keystore` to sign future updates.
