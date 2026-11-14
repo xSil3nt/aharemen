@@ -4,6 +4,10 @@ import android.app.*;
 import android.appwidget.*;
 import android.content.*;
 import android.os.Bundle;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.ForegroundColorSpan;
 import android.view.View;
 import android.widget.RemoteViews;
 import org.json.*;
@@ -61,12 +65,15 @@ public final class AllowanceWidget extends AppWidgetProvider {
                 views.setOnClickPendingIntent(BALANCES[kind],open);
                 String text="—",unit=UNITS[kind];if(snapshot!=null){double value=AccountSnapshot.allowance(snapshot,kind);if(kind==0&&value>=1024){value/=1024;unit="GB";}text=new DecimalFormat("#,##0.##").format(value);}
                 views.setTextViewText(UNIT_LABELS[kind],unit);
-                views.setTextViewText(VALUES[kind],text);int amount=0;BigDecimal cost=BigDecimal.ZERO;
+                SpannableString balance=new SpannableString(text+" "+unit);
+                balance.setSpan(new RelativeSizeSpan(.43f),text.length(),balance.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                balance.setSpan(new ForegroundColorSpan(0xffa0a0a6),text.length(),balance.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                views.setTextViewText(VALUES[kind],balance);int amount=0;BigDecimal cost=BigDecimal.ZERO;
                 try{amount=QuickAdd.units(kind,rates);int[] selected={0,0,0};selected[kind]=amount;cost=WalletMath.cost(selected,rates);}catch(Exception ignored){}
                 boolean available=snapshot!=null&&amount>0&&!blocked;
                 views.setTextViewText(BUTTONS[kind],amount>0?"+"+amount+" "+UNITS[kind]:"Open app");
                 views.setBoolean(BUTTONS[kind],"setEnabled",!blocked||state.equals("uncertain"));
-                views.setTextColor(BUTTONS[kind],blocked?0xff64756b:kind==0?0xffa8ccea:kind==1?0xffedc3a2:0xffb4e7c7);
+                views.setTextColor(BUTTONS[kind],blocked?0xff60606a:0xffdedee2);
                 if(available){Intent add=new Intent(c,AllowanceWidget.class).setAction(ADD).putExtra("kind",kind).putExtra("amount",amount).putExtra("quote",cost.toPlainString()).putExtra("session",WidgetActions.fingerprint(token));views.setOnClickPendingIntent(BUTTONS[kind],broadcast(c,1000+id*3+kind,add));views.setContentDescription(BUTTONS[kind],"Add "+amount+" "+UNITS[kind]+" for "+cost.stripTrailingZeros().toPlainString()+" RB");}
                 else views.setOnClickPendingIntent(BUTTONS[kind],open);
             }
