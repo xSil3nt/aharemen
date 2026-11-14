@@ -1,0 +1,4 @@
+<resources>
+    <string name="widget_name">Allowances</string>
+    <string name="widget_description">Remaining data, calls and texts with one-tap allowance builds.</string>
+</resources>

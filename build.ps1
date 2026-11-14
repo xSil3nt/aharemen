@@ -12,10 +12,10 @@ $bt=(Get-ChildItem tools\sdk-build-tools -Directory | Select-Object -First 1).Fu
 $android=(Get-ChildItem tools\sdk-platform -Filter android.jar -Recurse | Select-Object -First 1).FullName
 if(-not $bt -or -not $android){throw 'Android platform and build tools are missing.'}
 function Run($exe,[string[]]$arguments){ & $exe @arguments; if($LASTEXITCODE -ne 0){throw "$exe failed ($LASTEXITCODE)"} }
-New-Item -ItemType Directory -Force build\classes,build\dex,dist | Out-Null
+New-Item -ItemType Directory -Force build\classes,build\dex,build\generated,dist | Out-Null
 Run "$bt\aapt2.exe" @('compile','--dir','app\src\main\res','-o','build\resources.zip')
-Run "$bt\aapt2.exe" @('link','-o','build\base.apk','-I',$android,'--manifest','app\src\main\AndroidManifest.xml','--min-sdk-version','26','--target-sdk-version','36','build\resources.zip')
-$sources=@(Get-ChildItem app\src\main\java -Filter *.java -Recurse | ForEach-Object FullName)
+Run "$bt\aapt2.exe" @('link','-o','build\base.apk','-I',$android,'--manifest','app\src\main\AndroidManifest.xml','--java','build\generated','--min-sdk-version','26','--target-sdk-version','36','build\resources.zip')
+$sources=@(Get-ChildItem app\src\main\java,build\generated -Filter *.java -Recurse | ForEach-Object FullName)
 Run "$jdk\bin\javac.exe" (@('-encoding','UTF-8','--release','8','-classpath',$android,'-d','build\classes')+$sources)
 Run "$jdk\bin\jar.exe" @('cf','build\classes.jar','-C','build\classes','.')
 Run "$bt\d8.bat" @('--lib',$android,'--min-api','26','--output','build\dex','build\classes.jar')

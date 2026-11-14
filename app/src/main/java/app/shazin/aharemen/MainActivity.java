@@ -251,9 +251,24 @@ public class MainActivity extends Activity {
 
     void topup(){title("Top up","");section("BML");label("Amount · MVR");bmlAmount=input(body,"0.00",InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL,bmlAmountDraft);ui.space(body,7);body.addView(ui.text("To "+mobile,12,ui.muted));ui.space(body,16);button("Continue to payment",true,()->checkBmlTopup());section("Voucher");label("Voucher code");EditText voucher=input(body,"Enter voucher code",InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_VARIATION_PASSWORD,"");ui.space(body,12);button("Redeem voucher",false,()->{String v=voucher.getText().toString().trim();if(v.isEmpty()){voucher.setError("Enter the voucher code.");return;}LinearLayout c=sheet("Recharge your number","","plus");pair(c,"Mobile number",mobile);pair(c,"Voucher","•••• "+v.substring(Math.max(0,v.length()-4)));showSheet(c,"Redeem voucher",()->{if(demo){success("Demo only","No recharge was submitted.");return;}request("transfer/recharge","POST",json("code",v).toString(),false,j->refresh(()->success("Voucher redeemed","Dhiraagu confirmed the recharge. Balances are updating.")));});});}
     void checkBmlTopup(){String raw=bmlAmount.getText().toString().trim();bmlAmountDraft=raw;if(demo){notice("BML payment is unavailable in demo.");return;}if(raw.isEmpty()){bmlAmount.setError("Enter an amount.");return;}try{java.math.BigDecimal amount=new java.math.BigDecimal(raw);if(amount.signum()<=0||amount.scale()>2){bmlAmount.setError("Enter an amount greater than zero with up to two decimals.");return;}hideKeyboard();request("checkTopupLimit","POST",json("amount",amount.doubleValue()).toString(),false,j->{if(!j.optBoolean("success",false))throw new Exception(j.optString("message","This amount can’t be paid."));Intent intent=new Intent(this,PaymentActivity.class);intent.putExtra("amount",raw);intent.putExtra("mobile",mobile);intent.putExtra("token",token);startActivityForResult(intent,54);});}catch(NumberFormatException e){bmlAmount.setError("Enter a valid amount.");}}
-    void settings(){title(user.optString("name","Account"),"");setting("Mobile number",mobile);setting("Email",user.optString("email","—"));button(demo?"Leave demo":"Sign out",false,()->{if(demo){signout();return;}LinearLayout c=sheet("Sign out?","","account");showSheet(c,"Sign out",()->signout());});}
+    void settings(){title(user.optString("name","Account"),"");button("Add home-screen widget",false,()->pinWidget());setting("Mobile number",mobile);setting("Email",user.optString("email","—"));button(demo?"Leave demo":"Sign out",false,()->{if(demo){signout();return;}LinearLayout c=sheet("Sign out?","","account");showSheet(c,"Sign out",()->signout());});}
+    void pinWidget(){
+        android.appwidget.AppWidgetManager manager=android.appwidget.AppWidgetManager.getInstance(this);
+        if(manager.isRequestPinAppWidgetSupported())manager.requestPinAppWidget(new ComponentName(this,AllowanceWidget.class),null,null);
+        else notice("Long-press your home screen, choose Widgets, then aharemen.");
+    }
+    @Override protected void onResume(){super.onResume();if(sessions==null||token.isEmpty())return;
+        try{JSONObject latest=new JSONObject(sessions.loadSnapshot());if(!busy&&latest.optLong("at",0)>updatedAt){restoreAccount();render();}}catch(Exception ignored){}
+        reviewWidgetAction();
+    }
+    @Override protected void onNewIntent(Intent intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("widget",false)){screen="Home";render();if(!token.isEmpty())refresh(null);}}
+    String reviewedWidgetAction="";
+    void reviewWidgetAction(){WidgetActions.recover(this);JSONObject action=WidgetActions.current(this);String id=action.optString("id");if(!action.optString("state").equals("uncertain")||id.equals(reviewedWidgetAction))return;reviewedWidgetAction=id;
+        LinearLayout c=sheet("Check last quick-add","Dhiraagu’s response was lost. Check your allowances before allowing another add.","wallet");
+        showSheet(c,"Allow quick-add again",()->{if(!WidgetActions.clear(this)){reviewedWidgetAction="";notice("Still waiting for Dhiraagu. Try again after the request finishes.");}AllowanceWidget.updateAll(this);});refresh(null);
+    }
     void setting(String name,String value){body.addView(ui.text(name,12,ui.muted));ui.space(body,8);body.addView(ui.medium(value,16,ui.ink));ui.space(body,18);ui.divider(body);ui.space(body,18);}
-    void signout(){if(busy){notice("Wait for the current request before signing out.");return;}refreshGeneration++;refreshing=false;sessions.clearSnapshot();compatibleContacts.clear();contactsLoaded=false;contactsLoading=false;contactsError="";sessions.clear();token="";demo=false;loaded=false;user=new JSONObject();usage=new JSONObject();rates=new JSONObject();wallet=new JSONObject();history=new JSONArray();historyLoaded=false;historyLoading=false;historyError="";mobile=prefs.getString("mobile","");screen="Home";render();}
+    void signout(){synchronized(SessionStore.LOCK){if(busy||WidgetActions.inFlight(this)){notice("Wait for the current request before signing out.");return;}refreshGeneration++;refreshing=false;sessions.clearSnapshot();compatibleContacts.clear();contactsLoaded=false;contactsLoading=false;contactsError="";sessions.clear();token="";WidgetActions.clear(this);WidgetJob.cancelRefresh(this);AllowanceWidget.updateAll(this);demo=false;loaded=false;user=new JSONObject();usage=new JSONObject();rates=new JSONObject();wallet=new JSONObject();history=new JSONArray();historyLoaded=false;historyLoading=false;historyError="";mobile=prefs.getString("mobile","");screen="Home";render();}}
 
     LinearLayout sheet(String title,String subtitle,String icon){LinearLayout c=ui.col();c.setPadding(ui.d(24),ui.d(12),ui.d(24),ui.d(24));c.setBackground(ui.shape(ui.panel,28));View handle=new View(this);handle.setBackground(ui.shape(ui.line,4));LinearLayout.LayoutParams h=ui.lp(34,4);h.gravity=Gravity.CENTER_HORIZONTAL;c.addView(handle,h);ui.space(c,20);LinearLayout badge=ui.col();badge.setGravity(Gravity.CENTER);badge.setBackground(ui.shape(ui.raised,16));badge.addView(ui.icon(icon,ui.mint),ui.lp(25,25));c.addView(badge,ui.lp(50,50));ui.space(c,16);c.addView(ui.medium(title,24,ui.ink));if(!subtitle.isEmpty()){ui.space(c,8);c.addView(ui.text(subtitle,13,ui.muted));}ui.space(c,18);return c;}
     void pair(LinearLayout c,String name,String value){LinearLayout row=ui.row();ui.pad(row,0,9);row.addView(ui.text(name,13,ui.muted),new LinearLayout.LayoutParams(0,-2,1));TextView v=ui.medium(value,15,ui.ink);v.setGravity(Gravity.END);row.addView(v,new LinearLayout.LayoutParams(0,-2,1));c.addView(row);}
@@ -275,6 +290,8 @@ public class MainActivity extends Activity {
     }
     void request(String path,String method,String data,boolean form,Result done){
         if(busy){notice(pendingMessage);return;}
+        boolean mutation=method.equals("POST")&&(path.startsWith("wallet/")||path.startsWith("transfer/"));
+        if(mutation&&!WidgetActions.beginApp(this)){notice("A quick-add is pending. Check the widget before adding again.");return;}
         busy=true;int operation=++requestGeneration;pendingMessage=requestLabel(path);notice(pendingMessage);syncWorking();
         if(!method.equals("GET")){refreshGeneration++;refreshing=false;if(pullRefresh!=null)pullRefresh.refreshing(false);}
         String session=token;
@@ -283,7 +300,7 @@ public class MainActivity extends Activity {
             JSONObject result=ApiClient.call(session,path,method,data,form);
             if(method.equals("POST")&&!path.equals("user/verify")&&!path.equals("friends")&&!result.optBoolean("success",false))throw new Exception(result.optString("error","The request was not confirmed by the server."));
             handler.post(()->{if(isDestroyed()||!session.equals(token))return;busy=false;syncWorking();clearStatus();try{done.done(result);}catch(Exception e){notice(e.getMessage());}});
-        }catch(Exception e){handler.post(()->{if(isDestroyed()||!session.equals(token))return;busy=false;syncWorking();notice(e.getMessage()+(method.equals("POST")&&!path.equals("friends")?" Check your account before trying again; the request may have reached Dhiraagu.":""));});}});
+        }catch(Exception e){handler.post(()->{if(isDestroyed()||!session.equals(token))return;busy=false;syncWorking();notice(e.getMessage()+(method.equals("POST")&&!path.equals("friends")?" Check your account before trying again; the request may have reached Dhiraagu.":""));});}finally{if(mutation)WidgetActions.endApp();}});
     }
     void restoreAccount(){try{
         JSONObject saved=new JSONObject(sessions.loadSnapshot());
@@ -296,19 +313,12 @@ public class MainActivity extends Activity {
         if(loaded&&pullRefresh!=null)pullRefresh.refreshing(true);
         handler.postDelayed(()->{if(refreshing&&generation==refreshGeneration&&!loaded)notice("Waiting for Dhiraagu… Check your connection if this continues.");},8000);
         worker.execute(()->{try{
-            List<JSONObject> results=ParallelCalls.run(reads,Arrays.asList(
-                ()->ApiClient.call(session,"user","GET",null,false),
-                ()->ApiClient.call(session,"usages","GET",null,false),
-                ()->ApiClient.call(session,"rates","GET",null,false),
-                ()->ApiClient.call(session,"wallet","GET",null,false)));
-            JSONObject u=results.get(0),us=results.get(1),r=results.get(2),w=results.get(3);
+            JSONObject snapshot=AccountSnapshot.fetch(session,reads);
+            JSONObject u=snapshot.getJSONObject("user"),us=snapshot.getJSONObject("usage"),r=snapshot.getJSONObject("rates"),w=snapshot.getJSONObject("wallet");
             handler.post(()->{if(isDestroyed()||!session.equals(token)||generation!=refreshGeneration)return;
                 refreshing=false;user=w.optJSONObject("user")==null?u:w.optJSONObject("user");
-                JSONObject newest=w.optJSONObject("usage"),all=us.optJSONObject("data");
-                if(newest!=null&&all!=null)for(String k:KEYS){JSONObject plan=newest.optJSONObject(k);if(plan!=null)try{all.put(k,plan);}catch(JSONException ignored){}}
-                usage=us;rates=r;wallet=w;boolean first=!loaded;loaded=true;updatedAt=System.currentTimeMillis();
-                String snapshot=json("user",user,"usage",usage,"rates",rates,"wallet",wallet,"at",updatedAt).toString();
-                try{sessions.saveSnapshot(snapshot);}catch(Exception ignored){}
+                usage=us;rates=r;wallet=w;boolean first=!loaded;loaded=true;updatedAt=snapshot.optLong("at",System.currentTimeMillis());
+                try{sessions.saveSnapshotIfCurrent(session,snapshot.toString());AllowanceWidget.updateAll(this);}catch(Exception ignored){}
                 if(pullRefresh!=null)pullRefresh.refreshing(false);if(!busy)clearStatus();
                 if(first||screen.equals("Home")||screen.equals("Settings"))render();else if(screen.equals("Build"))updateQuote();
                 if(screen.equals("Activity")&&!historyLoaded&&!busy)loadHistory(false);

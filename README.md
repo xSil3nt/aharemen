@@ -4,6 +4,8 @@ An unofficial Dhiraagu client for Android 8+.
 
 Check balances, build or take back allowances, send and request RB, view activity, and top up.
 
+Home-screen widget: allowances with one-tap +50 MB builds and matching call/SMS amounts. Add it from Settings. Quick-add spends RB directly.
+
 ## Build
 
 Requires JDK 17+ (`JAVA_HOME`) and Android SDK platform/build tools 36 under `tools/sdk-platform/` and `tools/sdk-build-tools/`.

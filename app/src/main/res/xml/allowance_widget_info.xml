@@ -1,0 +1,7 @@
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="220dp" android:minHeight="228dp"
+    android:minResizeWidth="200dp" android:minResizeHeight="228dp"
+    android:targetCellWidth="4" android:targetCellHeight="3"
+    android:initialLayout="@layout/allowance_widget" android:previewLayout="@layout/allowance_widget"
+    android:description="@string/widget_description" android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="1800000" android:widgetCategory="home_screen"/>
