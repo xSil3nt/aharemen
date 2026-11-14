@@ -20,6 +20,10 @@ public final class AllowanceWidget extends AppWidgetProvider {
     static final String REFRESH="app.shazin.aharemen.WIDGET_REFRESH",ADD="app.shazin.aharemen.WIDGET_ADD";
     static final ExecutorService display=Executors.newSingleThreadExecutor();
     static volatile boolean refreshing;
+    static final Map<Integer,String[]> shown=new HashMap<>();
+    static final Map<Integer,int[]> slots=new HashMap<>();
+    static final int[] NEXT_VALUES={R.id.widget_data_next,R.id.widget_voice_next,R.id.widget_sms_next},FLIPPERS={R.id.widget_flip_data,R.id.widget_flip_voice,R.id.widget_flip_sms};
+    static final int[] ACCENTS={0xffa8ccea,0xffedc3a2,0xffb4e7c7};
     static final int[] VALUES={R.id.widget_data,R.id.widget_voice,R.id.widget_sms},BUTTONS={R.id.widget_add_data,R.id.widget_add_voice,R.id.widget_add_sms},BALANCES={R.id.widget_data_balance,R.id.widget_voice_balance,R.id.widget_sms_balance};
     static final int[] UNIT_LABELS={R.id.widget_unit_data,R.id.widget_unit_voice,R.id.widget_unit_sms};
     static final String[] UNITS={"MB","min","SMS"};
@@ -45,6 +49,11 @@ public final class AllowanceWidget extends AppWidgetProvider {
         JSONObject action=WidgetActions.enqueue(c,token,kind,amount,quote);
         if(action!=null&&!WidgetJob.schedule(c,true))WidgetActions.finish(c,action.optString("id"),"failed","Couldn’t start. Tap to try again.");
     }catch(Exception e){WidgetActions.prefs(c).edit().putString("widget_refresh_error",e.getMessage()==null?"Open aharemen to refresh.":e.getMessage()).apply();}}
+    static CharSequence balanceLabel(String text){
+        int split=text.lastIndexOf(' ');SpannableString label=new SpannableString(text);
+        if(split>=0){label.setSpan(new RelativeSizeSpan(.40f),split,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);label.setSpan(new ForegroundColorSpan(0xffa5b6ad),split,text.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);}
+        return label;
+    }
     static String savedTime(long at){
         Calendar saved=Calendar.getInstance(),now=Calendar.getInstance();saved.setTimeInMillis(at);
         boolean today=saved.get(Calendar.ERA)==now.get(Calendar.ERA)&&saved.get(Calendar.YEAR)==now.get(Calendar.YEAR)&&saved.get(Calendar.DAY_OF_YEAR)==now.get(Calendar.DAY_OF_YEAR);
@@ -60,20 +69,24 @@ public final class AllowanceWidget extends AppWidgetProvider {
             RemoteViews views=new RemoteViews(c.getPackageName(),R.layout.allowance_widget);PendingIntent open=open(c);
             views.setOnClickPendingIntent(R.id.widget_title,open);views.setOnClickPendingIntent(R.id.widget_status,open);
             views.setOnClickPendingIntent(R.id.widget_refresh,broadcast(c,801,new Intent(c,AllowanceWidget.class).setAction(REFRESH)));
+            String[] previous=shown.get(id),current=new String[3];int[] indices=slots.get(id);if(indices==null)indices=new int[3];
             double[] rates=snapshot==null?new double[]{0,0,0}:AccountSnapshot.rates(snapshot);
             for(int kind=0;kind<3;kind++){
                 views.setOnClickPendingIntent(BALANCES[kind],open);
-                String text="—",unit=UNITS[kind];if(snapshot!=null){double value=AccountSnapshot.allowance(snapshot,kind);if(kind==0&&value>=1024){value/=1024;unit="GB";}text=new DecimalFormat("#,##0.##").format(value);}
+                String text="—",unit=UNITS[kind];if(snapshot!=null){double value=AccountSnapshot.allowance(snapshot,kind);if(kind==0&&value>=1024){value/=1024;unit="GB";}text=WidgetFormat.whole(value);}
                 views.setTextViewText(UNIT_LABELS[kind],unit);
-                SpannableString balance=new SpannableString(text+" "+unit);
-                balance.setSpan(new RelativeSizeSpan(.43f),text.length(),balance.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                balance.setSpan(new ForegroundColorSpan(0xffa0a0a6),text.length(),balance.length(),Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                views.setTextViewText(VALUES[kind],balance);int amount=0;BigDecimal cost=BigDecimal.ZERO;
+                current[kind]=text+" "+unit;boolean changed=previous!=null&&!current[kind].equals(previous[kind]);
+                int before=indices[kind],next=changed&&android.animation.ValueAnimator.areAnimatorsEnabled()?1-before:before;
+                if(changed&&next!=before){int oldId=before==0?VALUES[kind]:NEXT_VALUES[kind];views.setTextViewText(oldId,balanceLabel(previous[kind]));}
+                else{views.setTextViewText(VALUES[kind],balanceLabel(current[kind]));views.setTextViewText(NEXT_VALUES[kind],balanceLabel(current[kind]));}
+                views.setTextViewText(next==0?VALUES[kind]:NEXT_VALUES[kind],balanceLabel(current[kind]));
+                views.setDisplayedChild(FLIPPERS[kind],next);indices[kind]=next;
+                int amount=0;BigDecimal cost=BigDecimal.ZERO;
                 try{amount=QuickAdd.units(kind,rates);int[] selected={0,0,0};selected[kind]=amount;cost=WalletMath.cost(selected,rates);}catch(Exception ignored){}
                 boolean available=snapshot!=null&&amount>0&&!blocked;
                 views.setTextViewText(BUTTONS[kind],amount>0?"+"+amount+" "+UNITS[kind]:"Open app");
                 views.setBoolean(BUTTONS[kind],"setEnabled",!blocked||state.equals("uncertain"));
-                views.setTextColor(BUTTONS[kind],blocked?0xff60606a:0xffdedee2);
+                views.setTextColor(BUTTONS[kind],blocked?0xff65766d:ACCENTS[kind]);
                 if(available){Intent add=new Intent(c,AllowanceWidget.class).setAction(ADD).putExtra("kind",kind).putExtra("amount",amount).putExtra("quote",cost.toPlainString()).putExtra("session",WidgetActions.fingerprint(token));views.setOnClickPendingIntent(BUTTONS[kind],broadcast(c,1000+id*3+kind,add));views.setContentDescription(BUTTONS[kind],"Add "+amount+" "+UNITS[kind]+" for "+cost.stripTrailingZeros().toPlainString()+" RB");}
                 else views.setOnClickPendingIntent(BUTTONS[kind],open);
             }
@@ -83,7 +96,7 @@ public final class AllowanceWidget extends AppWidgetProvider {
             if(!action.optString("note").isEmpty()&&(blocked||System.currentTimeMillis()-action.optLong("ended",0)<30000))note=action.optString("note");
             views.setTextViewText(R.id.widget_status,note);
             views.setViewVisibility(R.id.widget_progress,refreshing||state.equals("checking")||state.equals("sending")||(blocked&&state.equals("confirmed"))?View.VISIBLE:View.GONE);
-            manager.updateAppWidget(id,views);
+            manager.updateAppWidget(id,views);shown.put(id,current);slots.put(id,indices);
         }
     }
 }
