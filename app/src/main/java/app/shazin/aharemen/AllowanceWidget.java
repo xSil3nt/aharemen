@@ -17,6 +17,7 @@ public final class AllowanceWidget extends AppWidgetProvider {
     static final ExecutorService display=Executors.newSingleThreadExecutor();
     static volatile boolean refreshing;
     static final int[] VALUES={R.id.widget_data,R.id.widget_voice,R.id.widget_sms},BUTTONS={R.id.widget_add_data,R.id.widget_add_voice,R.id.widget_add_sms},BALANCES={R.id.widget_data_balance,R.id.widget_voice_balance,R.id.widget_sms_balance};
+    static final int[] UNIT_LABELS={R.id.widget_unit_data,R.id.widget_unit_voice,R.id.widget_unit_sms};
     static final String[] UNITS={"MB","min","SMS"};
     @Override public void onUpdate(Context c,AppWidgetManager manager,int[] ids){updateAll(c);WidgetJob.schedule(c,false);}
     @Override public void onAppWidgetOptionsChanged(Context c,AppWidgetManager manager,int id,Bundle options){updateAll(c);}
@@ -40,6 +41,11 @@ public final class AllowanceWidget extends AppWidgetProvider {
         JSONObject action=WidgetActions.enqueue(c,token,kind,amount,quote);
         if(action!=null&&!WidgetJob.schedule(c,true))WidgetActions.finish(c,action.optString("id"),"failed","Couldn’t start. Tap to try again.");
     }catch(Exception e){WidgetActions.prefs(c).edit().putString("widget_refresh_error",e.getMessage()==null?"Open aharemen to refresh.":e.getMessage()).apply();}}
+    static String savedTime(long at){
+        Calendar saved=Calendar.getInstance(),now=Calendar.getInstance();saved.setTimeInMillis(at);
+        boolean today=saved.get(Calendar.ERA)==now.get(Calendar.ERA)&&saved.get(Calendar.YEAR)==now.get(Calendar.YEAR)&&saved.get(Calendar.DAY_OF_YEAR)==now.get(Calendar.DAY_OF_YEAR);
+        return today?DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(at)):DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(at));
+    }
     static void updateAll(Context context){Context c=context.getApplicationContext();display.execute(()->updateNow(c));}
     static void updateNow(Context c){
         AppWidgetManager manager=AppWidgetManager.getInstance(c);int[] ids=manager.getAppWidgetIds(new ComponentName(c,AllowanceWidget.class));if(ids.length==0)return;
@@ -53,7 +59,8 @@ public final class AllowanceWidget extends AppWidgetProvider {
             double[] rates=snapshot==null?new double[]{0,0,0}:AccountSnapshot.rates(snapshot);
             for(int kind=0;kind<3;kind++){
                 views.setOnClickPendingIntent(BALANCES[kind],open);
-                String text="—";if(snapshot!=null){double value=AccountSnapshot.allowance(snapshot,kind);text=new DecimalFormat("#,##0.##").format(kind==0&&value>=1024?value/1024:value)+" "+(kind==0&&value>=1024?"GB":UNITS[kind]);}
+                String text="—",unit=UNITS[kind];if(snapshot!=null){double value=AccountSnapshot.allowance(snapshot,kind);if(kind==0&&value>=1024){value/=1024;unit="GB";}text=new DecimalFormat("#,##0.##").format(value);}
+                views.setTextViewText(UNIT_LABELS[kind],unit);
                 views.setTextViewText(VALUES[kind],text);int amount=0;BigDecimal cost=BigDecimal.ZERO;
                 try{amount=QuickAdd.units(kind,rates);int[] selected={0,0,0};selected[kind]=amount;cost=WalletMath.cost(selected,rates);}catch(Exception ignored){}
                 boolean available=snapshot!=null&&amount>0&&!blocked;
@@ -63,7 +70,7 @@ public final class AllowanceWidget extends AppWidgetProvider {
                 if(available){Intent add=new Intent(c,AllowanceWidget.class).setAction(ADD).putExtra("kind",kind).putExtra("amount",amount).putExtra("quote",cost.toPlainString()).putExtra("session",WidgetActions.fingerprint(token));views.setOnClickPendingIntent(BUTTONS[kind],broadcast(c,1000+id*3+kind,add));views.setContentDescription(BUTTONS[kind],"Add "+amount+" "+UNITS[kind]+" for "+cost.stripTrailingZeros().toPlainString()+" RB");}
                 else views.setOnClickPendingIntent(BUTTONS[kind],open);
             }
-            String note=token.isEmpty()?"Open aharemen to sign in":snapshot==null?"Open aharemen to load allowances":"Saved "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(snapshot.optLong("at",0)));
+            String note=token.isEmpty()?"Open aharemen to sign in":snapshot==null?"Open aharemen to load allowances":savedTime(snapshot.optLong("at",0));
             String error=WidgetActions.prefs(c).getString("widget_refresh_error","");if(!error.isEmpty()&&!token.isEmpty())note=error;
             if(refreshing&&!token.isEmpty())note="Refreshing allowances…";
             if(!action.optString("note").isEmpty()&&(blocked||System.currentTimeMillis()-action.optLong("ended",0)<30000))note=action.optString("note");
